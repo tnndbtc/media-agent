@@ -116,7 +116,7 @@ class LocalAssetResolver:
                 self._resolve_one(
                     entry.asset_type.value,  # AssetType(str, Enum) → "character" etc.
                     entry.asset_id,
-                    None,                    # no license_type in ManifestEntry (Phase 0)
+                    "proprietary_cleared",   # ManifestEntry has no license_type — Wave-2 default
                 )
                 for entry in asset_manifest.entries
             ]
@@ -181,16 +181,17 @@ class LocalAssetResolver:
             )
             resolved = make_placeholder(asset_type, norm_id)
         else:
-            license_type = manifest_license_type or "proprietary_cleared"
+            if not manifest_license_type:
+                raise ValueError(f"ERROR: missing license for local asset {asset_id}")
             resolved = ResolvedAsset(
                 asset_id=asset_id,
                 asset_type=asset_type,
                 uri=found_path.as_uri(),
                 is_placeholder=False,
                 source=AssetSource(type="local"),
-                license=AssetLicense(),
+                license=AssetLicense(spdx_id=manifest_license_type),
                 metadata=AssetMetadata(
-                    license_type=license_type,
+                    license_type=manifest_license_type,
                     provider_or_model="local_library",
                     retrieval_date=_PHASE0_DATE,
                 ),

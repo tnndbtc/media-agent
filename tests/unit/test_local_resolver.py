@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from models.resolution import AssetLicense, AssetSource, ResolvedAsset
+from models.resolution import AssetLicense, AssetMetadata, AssetSource, ResolvedAsset
 from resolvers.local import LocalAssetResolver
 from rights.license_validator import LicenseValidator
 
@@ -65,8 +65,8 @@ def test_resolve_is_deterministic(tmp_path: Path) -> None:
     _write_asset(tmp_path, "backgrounds", "office.jpg")
 
     manifest = _make_manifest(
-        character_packs=[{"asset_id": "hero"}],
-        backgrounds=[{"asset_id": "office"}],
+        character_packs=[{"asset_id": "hero", "license_type": "proprietary_cleared"}],
+        backgrounds=[{"asset_id": "office", "license_type": "proprietary_cleared"}],
         vo_items=[{"item_id": "vo-001", "speaker_id": "narrator", "text": "Hello", "license_type": "proprietary_cleared"}],
     )
 
@@ -90,7 +90,7 @@ def test_found_asset_returns_file_uri_and_metadata(tmp_path: Path) -> None:
     """A present local file resolves to a file:// URI with proprietary_cleared metadata."""
     asset_path = _write_asset(tmp_path, "characters", "hero.png")
 
-    manifest = _make_manifest(character_packs=[{"asset_id": "hero"}])
+    manifest = _make_manifest(character_packs=[{"asset_id": "hero", "license_type": "proprietary_cleared"}])
     resolver = LocalAssetResolver(assets_root=str(tmp_path))
     results = resolver.resolve(manifest)
 
@@ -136,7 +136,7 @@ def test_extension_preference_png_over_jpg(tmp_path: Path) -> None:
     _write_asset(tmp_path, "characters", "hero.jpg")
     _write_asset(tmp_path, "characters", "hero.png")
 
-    manifest = _make_manifest(character_packs=[{"asset_id": "hero"}])
+    manifest = _make_manifest(character_packs=[{"asset_id": "hero", "license_type": "proprietary_cleared"}])
     resolver = LocalAssetResolver(assets_root=str(tmp_path))
     results = resolver.resolve(manifest)
 
@@ -202,8 +202,8 @@ def test_output_order_follows_manifest_array_order(tmp_path: Path) -> None:
     _write_asset(tmp_path, "backgrounds", "forest.png")
 
     manifest = _make_manifest(
-        character_packs=[{"asset_id": "alice"}],
-        backgrounds=[{"asset_id": "forest"}],
+        character_packs=[{"asset_id": "alice", "license_type": "proprietary_cleared"}],
+        backgrounds=[{"asset_id": "forest", "license_type": "proprietary_cleared"}],
         vo_items=[
             {"item_id": "line-01", "speaker_id": "alice", "text": "Hi", "license_type": "proprietary_cleared"},
             {"item_id": "line-02", "speaker_id": "alice", "text": "Bye", "license_type": "proprietary_cleared"},
@@ -296,7 +296,7 @@ def test_source_field_on_found_asset(tmp_path: Path) -> None:
     """A successfully resolved local file has source.type == 'local'."""
     _write_asset(tmp_path, "characters", "hero.png")
 
-    manifest = _make_manifest(character_packs=[{"asset_id": "hero"}])
+    manifest = _make_manifest(character_packs=[{"asset_id": "hero", "license_type": "proprietary_cleared"}])
     resolver = LocalAssetResolver(assets_root=str(tmp_path))
     results = resolver.resolve(manifest)
 
@@ -315,12 +315,12 @@ def test_source_field_on_placeholder(tmp_path: Path) -> None:
 
 
 def test_license_field_defaults(tmp_path: Path) -> None:
-    """Both found and placeholder assets have NOASSERTION license defaults."""
+    """Found asset gets spdx_id from manifest; placeholder defaults to NOASSERTION."""
     _write_asset(tmp_path, "characters", "hero.png")
 
     manifest = _make_manifest(
         character_packs=[
-            {"asset_id": "hero"},
+            {"asset_id": "hero", "license_type": "proprietary_cleared"},
             {"asset_id": "ghost"},   # missing → placeholder
         ]
     )
@@ -328,10 +328,14 @@ def test_license_field_defaults(tmp_path: Path) -> None:
     results = resolver.resolve(manifest)
 
     assert len(results) == 2
-    for resolved in results:
-        assert resolved.license.spdx_id == "NOASSERTION"
-        assert resolved.license.attribution_required is False
-        assert resolved.license.text == ""
+    # Found asset: spdx_id reflects the manifest license_type
+    assert results[0].license.spdx_id == "proprietary_cleared"
+    assert results[0].license.attribution_required is False
+    assert results[0].license.text == ""
+    # Placeholder: spdx_id stays at NOASSERTION
+    assert results[1].license.spdx_id == "NOASSERTION"
+    assert results[1].license.attribution_required is False
+    assert results[1].license.text == ""
 
 
 def test_placeholder_uri_sha256_deterministic(tmp_path: Path) -> None:
@@ -368,3 +372,64 @@ def test_uri_validator_rejects_http_https() -> None:
             uri="https://example.com/x.png",
             source=AssetSource(type="local"),
         )
+
+
+# ---------------------------------------------------------------------------
+# Wave-2 tests — license required for local assets + exact error messages
+# ---------------------------------------------------------------------------
+
+
+def test_wave2_missing_license_local_asset_raises(tmp_path: Path) -> None:
+    """Resolving a found local file without license_type raises with the exact error."""
+    _write_asset(tmp_path, "characters", "hero.png")
+
+    manifest = _make_manifest(character_packs=[{"asset_id": "hero"}])
+    resolver = LocalAssetResolver(assets_root=str(tmp_path))
+
+    with pytest.raises(ValueError) as exc_info:
+        resolver.resolve(manifest)
+
+    assert str(exc_info.value) == "ERROR: missing license for local asset hero"
+
+
+def test_wave2_placeholder_allows_noassertion_license(tmp_path: Path) -> None:
+    """A missing asset (placeholder) requires no license and has spdx_id == 'NOASSERTION'."""
+    manifest = _make_manifest(character_packs=[{"asset_id": "ghost"}])
+    resolver = LocalAssetResolver(assets_root=str(tmp_path))
+
+    results = resolver.resolve(manifest)
+
+    assert len(results) == 1
+    assert results[0].is_placeholder is True
+    assert results[0].license.spdx_id == "NOASSERTION"
+
+
+def test_wave2_remote_uri_exact_error_message() -> None:
+    """ResolvedAsset raises ValidationError with the exact Wave-2 error prefix for http://."""
+    with pytest.raises(ValidationError) as exc_info:
+        ResolvedAsset(
+            asset_id="remote-asset",
+            asset_type="character",
+            uri="http://example.com/x.png",
+            source=AssetSource(type="local"),
+            metadata=AssetMetadata(license_type="proprietary_cleared"),
+        )
+
+    assert "ERROR: remote uri not allowed: http://example.com/x.png" in str(exc_info.value)
+
+
+def test_wave2_two_run_json_bytes_identical(tmp_path: Path) -> None:
+    """Resolving the same manifest twice yields byte-identical model_dump_json() output."""
+    _write_asset(tmp_path, "characters", "hero.png")
+
+    manifest = _make_manifest(
+        character_packs=[
+            {"asset_id": "hero", "license_type": "proprietary_cleared"},
+            {"asset_id": "ghost"},   # missing → placeholder
+        ]
+    )
+    resolver = LocalAssetResolver(assets_root=str(tmp_path))
+    first = resolver.resolve(manifest)
+    second = resolver.resolve(manifest)
+
+    assert [r.model_dump_json() for r in first] == [r.model_dump_json() for r in second]

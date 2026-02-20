@@ -88,5 +88,5 @@ class ResolvedAsset(BaseModel):
     def _reject_remote_schemes(cls, v: str) -> str:
         """Hard-reject remote HTTP/HTTPS URIs — no network fetching allowed."""
         if v.lower().startswith(("http://", "https://")):
-            raise ValueError(f"Remote URI schemes are rejected: {v!r}")
+            raise ValueError(f"ERROR: remote uri not allowed: {v}")
         return v
