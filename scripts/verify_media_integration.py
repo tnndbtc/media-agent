@@ -10,6 +10,7 @@ Exit codes:
     2  — RUN_DIR missing or AssetManifest.json not found
 """
 
+import argparse
 import json
 import os
 import sys
@@ -23,6 +24,12 @@ from resolvers.local import LocalAssetResolver  # noqa: E402
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--strict", action="store_true",
+                        help="Fail if any resolved asset is a placeholder.")
+    args = parser.parse_args()
+    strict = args.strict
+
     # 1. Resolve RUN_DIR
     run_dir_str = os.environ.get("RUN_DIR")
     if not run_dir_str:
@@ -64,6 +71,16 @@ def main() -> None:
             file=sys.stderr,
         )
         sys.exit(1)
+
+    # 4b. Strict mode: reject placeholders (missing local assets)
+    if strict:
+        for r in results_1:
+            if r.is_placeholder:
+                print(
+                    f"ERROR: invalid license for local asset {r.asset_id}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
 
     # 5. Write AssetManifest.media.json
     output_path = run_dir / "AssetManifest.media.json"

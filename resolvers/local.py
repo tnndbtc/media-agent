@@ -89,7 +89,7 @@ class LocalAssetResolver:
 
     def __init__(self, assets_root: str | None = None) -> None:
         root = assets_root or os.environ.get("LOCAL_ASSETS_ROOT", _DEFAULT_ASSETS_ROOT)
-        self.assets_root = Path(root)
+        self.assets_root = Path(root).resolve()
         self._validator = LicenseValidator()
         self._log = structlog.get_logger("resolvers.local")
 
