@@ -13,6 +13,7 @@ Output: list[ResolvedAsset] — order mirrors manifest arrays
           (character_packs → backgrounds → vo_items)
 """
 
+import json
 import os
 from pathlib import Path
 
@@ -37,6 +38,16 @@ _TYPE_TO_SUBDIR: dict[str, str] = {
     "vo": "vo",
     "sfx": "sfx",
     "music": "music",
+}
+
+# Map asset_type → subdirectory name under MEDIA_LIBRARY_ROOT.
+_LIBRARY_TYPE_TO_SUBDIR: dict[str, str] = {
+    "character": "images",
+    "background": "images",
+    "prop": "images",
+    "vo": "audio",
+    "sfx": "audio",
+    "music": "audio",
 }
 
 # Extension preference lists — first match wins (most preferred → least).
@@ -87,9 +98,15 @@ class LocalAssetResolver:
             ``./data/local_assets/`` if the env var is not set.
     """
 
-    def __init__(self, assets_root: str | None = None) -> None:
+    def __init__(
+        self,
+        assets_root: str | None = None,
+        library_root: str | None = None,
+    ) -> None:
         root = assets_root or os.environ.get("LOCAL_ASSETS_ROOT", _DEFAULT_ASSETS_ROOT)
         self.assets_root = Path(root).resolve()
+        lib = library_root or os.environ.get("MEDIA_LIBRARY_ROOT")
+        self.library_root: Path | None = Path(lib).resolve() if lib else None
         self._validator = LicenseValidator()
         self._log = structlog.get_logger("resolvers.local")
 
@@ -159,6 +176,17 @@ class LocalAssetResolver:
     # Private helpers
     # ------------------------------------------------------------------
 
+    def _load_license_file(self, asset_id: str) -> dict:
+        """Load and return the license JSON for *asset_id* from the library root.
+
+        Raises:
+            ValueError: If the license file does not exist.
+        """
+        license_path = self.library_root / "licenses" / f"{asset_id}.license.json"
+        if not license_path.exists():
+            raise ValueError(f"ERROR: missing license file for local asset {asset_id}")
+        return json.loads(license_path.read_text(encoding="utf-8"))
+
     def _resolve_one(
         self,
         asset_type: str,
@@ -166,6 +194,31 @@ class LocalAssetResolver:
         manifest_license_type: str | None,
     ) -> ResolvedAsset:
         """Resolve a single asset entry."""
+        # Try MEDIA_LIBRARY_ROOT first (library root takes priority).
+        if self.library_root is not None:
+            norm_id = _normalize_id(asset_id)
+            lib_subdir = _LIBRARY_TYPE_TO_SUBDIR.get(asset_type, "images")
+            lib_path = self._find_file(self.library_root / lib_subdir, norm_id, asset_type)
+            if lib_path is not None:
+                lic = self._load_license_file(asset_id)   # raises if license file missing
+                return ResolvedAsset(
+                    asset_id=asset_id,
+                    asset_type=asset_type,
+                    uri=lib_path.as_uri(),
+                    is_placeholder=False,
+                    source=AssetSource(type="local"),
+                    license=AssetLicense(
+                        spdx_id=lic.get("spdx_id", "NOASSERTION"),
+                        attribution_required=lic.get("attribution_required", False),
+                        text=lic.get("text", ""),
+                    ),
+                    metadata=AssetMetadata(
+                        license_type=lic.get("spdx_id", "NOASSERTION"),
+                        provider_or_model="local_library",
+                        retrieval_date=_PHASE0_DATE,
+                    ),
+                )
+        # Fall through to LOCAL_ASSETS_ROOT resolution.
         norm_id = _normalize_id(asset_id)
         subdir = _TYPE_TO_SUBDIR.get(asset_type, asset_type + "s")
         search_dir = self.assets_root / subdir

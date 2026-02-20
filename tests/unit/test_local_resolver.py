@@ -498,3 +498,102 @@ def test_wave3_two_run_json_bytes_identical(tmp_path: Path) -> None:
     second = resolver.resolve(manifest)
 
     assert [r.model_dump_json() for r in first] == [r.model_dump_json() for r in second]
+
+
+# ---------------------------------------------------------------------------
+# Wave-6 tests — MEDIA_LIBRARY_ROOT local media library layout + resolver
+# ---------------------------------------------------------------------------
+
+
+def _setup_library(
+    root: Path,
+    asset_id: str,
+    filename: str,
+    license_dict: dict,
+    content: bytes = b"x",
+) -> None:
+    """Create *images/<filename>* and *licenses/<asset_id>.license.json* under *root*."""
+    images_dir = root / "images"
+    images_dir.mkdir(parents=True, exist_ok=True)
+    (images_dir / filename).write_bytes(content)
+
+    licenses_dir = root / "licenses"
+    licenses_dir.mkdir(parents=True, exist_ok=True)
+    (licenses_dir / f"{asset_id}.license.json").write_text(
+        json.dumps(license_dict), encoding="utf-8"
+    )
+
+
+def test_library_root_found_with_license(tmp_path: Path) -> None:
+    """Library-root asset resolves with file:// URI and license fields from license file."""
+    lib = tmp_path / "lib"
+    assets = tmp_path / "assets"
+
+    license_data = {
+        "spdx_id": "CC-BY-4.0",
+        "attribution_required": True,
+        "text": "© 2024 Example Author",
+    }
+    _setup_library(lib, "hero", "hero.png", license_data)
+
+    manifest = _make_manifest(character_packs=[{"asset_id": "hero", "license_type": "CC-BY-4.0"}])
+    resolver = LocalAssetResolver(assets_root=str(assets), library_root=str(lib))
+    results = resolver.resolve(manifest)
+
+    assert len(results) == 1
+    resolved = results[0]
+
+    assert resolved.is_placeholder is False
+    assert resolved.uri.endswith("hero.png")
+    assert resolved.license.spdx_id == "CC-BY-4.0"
+    assert resolved.license.attribution_required is True
+    assert resolved.license.text == "© 2024 Example Author"
+
+
+def test_library_root_missing_license_raises(tmp_path: Path) -> None:
+    """Library asset present but license file absent raises ValueError with exact message."""
+    lib = tmp_path / "lib"
+    images_dir = lib / "images"
+    images_dir.mkdir(parents=True, exist_ok=True)
+    (images_dir / "hero.png").write_bytes(b"x")
+    # Intentionally omit licenses/hero.license.json
+
+    manifest = _make_manifest(character_packs=[{"asset_id": "hero", "license_type": "CC-BY-4.0"}])
+    resolver = LocalAssetResolver(assets_root=str(tmp_path / "assets"), library_root=str(lib))
+
+    with pytest.raises(ValueError) as exc_info:
+        resolver.resolve(manifest)
+
+    assert str(exc_info.value) == "ERROR: missing license file for local asset hero"
+
+
+def test_library_root_deterministic(tmp_path: Path) -> None:
+    """Resolving the same manifest against library root twice yields byte-identical JSON."""
+    lib = tmp_path / "lib"
+    assets = tmp_path / "assets"
+
+    license_data = {
+        "spdx_id": "CC0",
+        "attribution_required": False,
+        "text": "",
+    }
+    _setup_library(lib, "hero", "hero.png", license_data)
+
+    manifest = _make_manifest(character_packs=[{"asset_id": "hero", "license_type": "CC0"}])
+    resolver = LocalAssetResolver(assets_root=str(assets), library_root=str(lib))
+
+    first = resolver.resolve(manifest)
+    second = resolver.resolve(manifest)
+
+    assert [r.model_dump_json() for r in first] == [r.model_dump_json() for r in second]
+
+
+def test_library_root_remote_schemes_still_rejected() -> None:
+    """ResolvedAsset model still rejects https:// URIs even with library code path present."""
+    with pytest.raises(ValidationError):
+        ResolvedAsset(
+            asset_id="remote-asset",
+            asset_type="character",
+            uri="https://cdn.example.com/x.png",
+            source=AssetSource(type="local"),
+        )
