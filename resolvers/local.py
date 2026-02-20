@@ -126,7 +126,8 @@ class LocalAssetResolver:
         # 1. character_packs
         for entry in asset_manifest.get("character_packs", []):
             aid = (
-                entry.get("asset_id")
+                entry.get("pack_id")        # orchestrator canonical field
+                or entry.get("asset_id")
                 or entry.get("character_id")
                 or _derive_id(entry)
             )
@@ -136,7 +137,11 @@ class LocalAssetResolver:
 
         # 2. backgrounds
         for entry in asset_manifest.get("backgrounds", []):
-            aid = entry.get("asset_id") or _derive_id(entry)
+            aid = (
+                entry.get("bg_id")          # orchestrator canonical field
+                or entry.get("asset_id")
+                or _derive_id(entry)
+            )
             results.append(
                 self._resolve_one("background", aid, entry.get("license_type"))
             )

@@ -245,3 +245,41 @@ def test_vo_item_preserves_manifest_license_type(tmp_path: Path) -> None:
     assert results[0].metadata.license_type == "CC0"
     assert results[0].is_placeholder is False
     assert results[0].rights_warning == ""
+
+
+# ---------------------------------------------------------------------------
+# Integration test — orchestrator AssetManifest.json field names
+# ---------------------------------------------------------------------------
+
+
+def test_orchestrator_manifest_ids_resolve_to_file_uris(tmp_path: Path) -> None:
+    """pack_id / bg_id / item_id from orchestrator manifest resolve to real files."""
+    char_path = _write_asset(tmp_path, "characters", "hero-pack.png")
+    bg_path   = _write_asset(tmp_path, "backgrounds", "rooftop.jpg")
+    vo_path   = _write_asset(tmp_path, "vo", "line-01.wav")
+
+    manifest = _make_manifest(
+        character_packs=[{"pack_id": "hero-pack", "license_type": "proprietary_cleared"}],
+        backgrounds=[{"bg_id": "rooftop", "license_type": "proprietary_cleared"}],
+        vo_items=[{"item_id": "line-01", "speaker_id": "narrator",
+                   "text": "Hello", "license_type": "proprietary_cleared"}],
+    )
+
+    resolver = LocalAssetResolver(assets_root=str(tmp_path))
+    results = resolver.resolve(manifest)
+
+    assert len(results) == 3
+
+    char_r, bg_r, vo_r = results
+
+    assert char_r.is_placeholder is False
+    assert char_r.asset_type == "character"
+    assert char_r.uri == char_path.as_uri()
+
+    assert bg_r.is_placeholder is False
+    assert bg_r.asset_type == "background"
+    assert bg_r.uri == bg_path.as_uri()
+
+    assert vo_r.is_placeholder is False
+    assert vo_r.asset_type == "vo"
+    assert vo_r.uri == vo_path.as_uri()
