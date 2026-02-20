@@ -389,7 +389,7 @@ def test_wave2_missing_license_local_asset_raises(tmp_path: Path) -> None:
     with pytest.raises(ValueError) as exc_info:
         resolver.resolve(manifest)
 
-    assert str(exc_info.value) == "ERROR: missing license for local asset hero"
+    assert str(exc_info.value) == "ERROR: invalid license for local asset hero"
 
 
 def test_wave2_placeholder_allows_noassertion_license(tmp_path: Path) -> None:
@@ -420,6 +420,71 @@ def test_wave2_remote_uri_exact_error_message() -> None:
 
 def test_wave2_two_run_json_bytes_identical(tmp_path: Path) -> None:
     """Resolving the same manifest twice yields byte-identical model_dump_json() output."""
+    _write_asset(tmp_path, "characters", "hero.png")
+
+    manifest = _make_manifest(
+        character_packs=[
+            {"asset_id": "hero", "license_type": "proprietary_cleared"},
+            {"asset_id": "ghost"},   # missing → placeholder
+        ]
+    )
+    resolver = LocalAssetResolver(assets_root=str(tmp_path))
+    first = resolver.resolve(manifest)
+    second = resolver.resolve(manifest)
+
+    assert [r.model_dump_json() for r in first] == [r.model_dump_json() for r in second]
+
+
+# ---------------------------------------------------------------------------
+# Wave-3 tests — NOASSERTION guard + schema metadata fields
+# ---------------------------------------------------------------------------
+
+
+def test_wave3_noassertion_license_raises(tmp_path: Path) -> None:
+    """Resolving a found local file with license_type='NOASSERTION' raises with the exact error."""
+    _write_asset(tmp_path, "characters", "hero.png")
+
+    manifest = _make_manifest(character_packs=[{"asset_id": "hero", "license_type": "NOASSERTION"}])
+    resolver = LocalAssetResolver(assets_root=str(tmp_path))
+
+    with pytest.raises(ValueError) as exc_info:
+        resolver.resolve(manifest)
+
+    assert str(exc_info.value) == "ERROR: invalid license for local asset hero"
+
+
+def test_wave3_schema_fields_present_on_found_asset(tmp_path: Path) -> None:
+    """A successfully resolved local asset carries the three schema metadata fields."""
+    _write_asset(tmp_path, "characters", "hero.png")
+
+    manifest = _make_manifest(character_packs=[{"asset_id": "hero", "license_type": "proprietary_cleared"}])
+    resolver = LocalAssetResolver(assets_root=str(tmp_path))
+    results = resolver.resolve(manifest)
+
+    assert len(results) == 1
+    data = json.loads(results[0].model_dump_json())
+
+    assert data["schema_id"] == "urn:media:resolved-asset"
+    assert data["schema_version"] == "1"
+    assert data["producer"] == "media/resolvers/local"
+
+
+def test_wave3_schema_fields_present_on_placeholder(tmp_path: Path) -> None:
+    """A placeholder asset (no local file found) also carries the three schema metadata fields."""
+    manifest = _make_manifest(character_packs=[{"asset_id": "ghost"}])
+    resolver = LocalAssetResolver(assets_root=str(tmp_path))
+    results = resolver.resolve(manifest)
+
+    assert len(results) == 1
+    data = json.loads(results[0].model_dump_json())
+
+    assert data["schema_id"] == "urn:media:resolved-asset"
+    assert data["schema_version"] == "1"
+    assert data["producer"] == "media/resolvers/local"
+
+
+def test_wave3_two_run_json_bytes_identical(tmp_path: Path) -> None:
+    """Resolving the same manifest twice yields byte-identical JSON with the new schema fields."""
     _write_asset(tmp_path, "characters", "hero.png")
 
     manifest = _make_manifest(

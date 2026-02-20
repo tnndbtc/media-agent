@@ -83,6 +83,15 @@ class ResolvedAsset(BaseModel):
     license: AssetLicense = Field(default_factory=AssetLicense)
     """SPDX-oriented license block; defaults to NOASSERTION when not supplied."""
 
+    schema_id: str = "urn:media:resolved-asset"
+    """Stable identifier for the resolved-asset record schema."""
+
+    schema_version: str = "1"
+    """Schema version; increment when fields are added or semantics change."""
+
+    producer: str = "media/resolvers/local"
+    """Identifier of the component that produced this record."""
+
     @field_validator("uri")
     @classmethod
     def _reject_remote_schemes(cls, v: str) -> str:

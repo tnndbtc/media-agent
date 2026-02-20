@@ -181,8 +181,8 @@ class LocalAssetResolver:
             )
             resolved = make_placeholder(asset_type, norm_id)
         else:
-            if not manifest_license_type:
-                raise ValueError(f"ERROR: missing license for local asset {asset_id}")
+            if not manifest_license_type or manifest_license_type == "NOASSERTION":
+                raise ValueError(f"ERROR: invalid license for local asset {asset_id}")
             resolved = ResolvedAsset(
                 asset_id=asset_id,
                 asset_type=asset_type,
