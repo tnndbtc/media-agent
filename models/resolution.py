@@ -6,7 +6,28 @@ Spec refs:
   §19.0 Phase 0 — is_placeholder flag, rights_warning stub
 """
 
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from pydantic import BaseModel, Field, field_validator
+
+
+class AssetSource(BaseModel):
+    """Indicates whether the asset came from a local file or was generated."""
+
+    type: Literal["local", "generated_placeholder"]
+
+
+class AssetLicense(BaseModel):
+    """Minimal SPDX-oriented license block for a resolved asset."""
+
+    spdx_id: str = "NOASSERTION"
+    """SPDX license identifier or 'NOASSERTION' when not determined."""
+
+    attribution_required: bool = False
+    """True when the license requires attribution in downstream outputs."""
+
+    text: str = ""
+    """Full license text; empty when not applicable or not retrieved."""
 
 
 class AssetMetadata(BaseModel):
@@ -55,3 +76,17 @@ class ResolvedAsset(BaseModel):
     Non-empty when license_type is not in the allowed set.
     Phase 0: warning only — no hard block.
     """
+
+    source: AssetSource
+    """Origin of the asset: local file from disk or generated placeholder."""
+
+    license: AssetLicense = Field(default_factory=AssetLicense)
+    """SPDX-oriented license block; defaults to NOASSERTION when not supplied."""
+
+    @field_validator("uri")
+    @classmethod
+    def _reject_remote_schemes(cls, v: str) -> str:
+        """Hard-reject remote HTTP/HTTPS URIs — no network fetching allowed."""
+        if v.lower().startswith(("http://", "https://")):
+            raise ValueError(f"Remote URI schemes are rejected: {v!r}")
+        return v

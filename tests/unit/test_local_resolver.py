@@ -11,12 +11,14 @@ All tests are synchronous and use only pytest + tmp_path (no network, no Redis,
 no OpenAI).
 """
 
+import hashlib
 import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
-from models.resolution import ResolvedAsset
+from models.resolution import AssetLicense, AssetSource, ResolvedAsset
 from resolvers.local import LocalAssetResolver
 from rights.license_validator import LicenseValidator
 
@@ -118,7 +120,7 @@ def test_missing_asset_returns_placeholder(tmp_path: Path) -> None:
     resolved = results[0]
 
     assert resolved.is_placeholder is True
-    assert resolved.uri == "placeholder://character/ghost"
+    assert resolved.uri == f"placeholders/{hashlib.sha256(b'ghost').hexdigest()}.png"
     assert resolved.metadata.license_type == "placeholder"
     assert resolved.metadata.provider_or_model == "placeholder_stub_v0"
     assert resolved.metadata.retrieval_date == "1970-01-01T00:00:00Z"
@@ -283,3 +285,86 @@ def test_orchestrator_manifest_ids_resolve_to_file_uris(tmp_path: Path) -> None:
     assert vo_r.is_placeholder is False
     assert vo_r.asset_type == "vo"
     assert vo_r.uri == vo_path.as_uri()
+
+
+# ---------------------------------------------------------------------------
+# Wave-1 tests — provenance metadata & deterministic placeholder URIs
+# ---------------------------------------------------------------------------
+
+
+def test_source_field_on_found_asset(tmp_path: Path) -> None:
+    """A successfully resolved local file has source.type == 'local'."""
+    _write_asset(tmp_path, "characters", "hero.png")
+
+    manifest = _make_manifest(character_packs=[{"asset_id": "hero"}])
+    resolver = LocalAssetResolver(assets_root=str(tmp_path))
+    results = resolver.resolve(manifest)
+
+    assert len(results) == 1
+    assert results[0].source.type == "local"
+
+
+def test_source_field_on_placeholder(tmp_path: Path) -> None:
+    """A placeholder asset (no local file) has source.type == 'generated_placeholder'."""
+    manifest = _make_manifest(character_packs=[{"asset_id": "ghost"}])
+    resolver = LocalAssetResolver(assets_root=str(tmp_path))
+    results = resolver.resolve(manifest)
+
+    assert len(results) == 1
+    assert results[0].source.type == "generated_placeholder"
+
+
+def test_license_field_defaults(tmp_path: Path) -> None:
+    """Both found and placeholder assets have NOASSERTION license defaults."""
+    _write_asset(tmp_path, "characters", "hero.png")
+
+    manifest = _make_manifest(
+        character_packs=[
+            {"asset_id": "hero"},
+            {"asset_id": "ghost"},   # missing → placeholder
+        ]
+    )
+    resolver = LocalAssetResolver(assets_root=str(tmp_path))
+    results = resolver.resolve(manifest)
+
+    assert len(results) == 2
+    for resolved in results:
+        assert resolved.license.spdx_id == "NOASSERTION"
+        assert resolved.license.attribution_required is False
+        assert resolved.license.text == ""
+
+
+def test_placeholder_uri_sha256_deterministic(tmp_path: Path) -> None:
+    """Resolving the same missing asset twice yields identical sha256-based URIs."""
+    manifest = _make_manifest(character_packs=[{"asset_id": "missing-char"}])
+    resolver = LocalAssetResolver(assets_root=str(tmp_path))
+
+    first = resolver.resolve(manifest)[0]
+    second = resolver.resolve(manifest)[0]
+
+    assert first.uri == second.uri, "Placeholder URI must be deterministic"
+
+    # URI must have the form placeholders/<64-char-hex>.png
+    import re
+    assert re.fullmatch(r"placeholders/[0-9a-f]{64}\.png", first.uri), (
+        f"Unexpected placeholder URI format: {first.uri!r}"
+    )
+
+
+def test_uri_validator_rejects_http_https() -> None:
+    """ResolvedAsset raises ValidationError when constructed with an http:// URI."""
+    with pytest.raises(ValidationError):
+        ResolvedAsset(
+            asset_id="remote-asset",
+            asset_type="character",
+            uri="http://example.com/x.png",
+            source=AssetSource(type="local"),
+        )
+
+    with pytest.raises(ValidationError):
+        ResolvedAsset(
+            asset_id="remote-asset",
+            asset_type="character",
+            uri="https://example.com/x.png",
+            source=AssetSource(type="local"),
+        )

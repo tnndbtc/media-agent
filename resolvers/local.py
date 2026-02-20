@@ -19,7 +19,7 @@ from pathlib import Path
 import structlog
 
 from app.models.asset_manifest import AssetManifest
-from models.resolution import AssetMetadata, ResolvedAsset
+from models.resolution import AssetLicense, AssetMetadata, AssetSource, ResolvedAsset
 from resolvers.placeholder import make_placeholder
 from rights.license_validator import LicenseValidator
 
@@ -187,6 +187,8 @@ class LocalAssetResolver:
                 asset_type=asset_type,
                 uri=found_path.as_uri(),
                 is_placeholder=False,
+                source=AssetSource(type="local"),
+                license=AssetLicense(),
                 metadata=AssetMetadata(
                     license_type=license_type,
                     provider_or_model="local_library",
