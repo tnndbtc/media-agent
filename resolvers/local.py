@@ -18,6 +18,7 @@ from pathlib import Path
 
 import structlog
 
+from app.models.asset_manifest import AssetManifest
 from models.resolution import AssetMetadata, ResolvedAsset
 from resolvers.placeholder import make_placeholder
 from rights.license_validator import LicenseValidator
@@ -96,24 +97,30 @@ class LocalAssetResolver:
     # Public API
     # ------------------------------------------------------------------
 
-    def resolve(self, asset_manifest: dict) -> list[ResolvedAsset]:
+    def resolve(self, asset_manifest: "AssetManifest | dict") -> list[ResolvedAsset]:
         """Resolve all entries in *asset_manifest* to local files or placeholders.
 
-        Processing order (deterministic):
-          1. ``character_packs[]``
-          2. ``backgrounds[]``
-          3. ``vo_items[]``
-
-        Args:
-            asset_manifest: Dict conforming to AssetManifest.v1.json canonical
-                schema.  Must contain at minimum the three array keys above
-                (any or all may be absent/empty).
+        Accepts either:
+        - An :class:`~app.models.asset_manifest.AssetManifest` object (entries[]
+          schema) — output order preserves ``entries[]`` order.
+        - A plain ``dict`` conforming to the canonical orchestrator schema
+          (``character_packs[]`` → ``backgrounds[]`` → ``vo_items[]`` order).
 
         Returns:
-            A list of :class:`~models.resolution.ResolvedAsset` objects in the
-            order described above.  Never raises; missing assets become
-            placeholders.
+            A list of :class:`~models.resolution.ResolvedAsset` objects.
+            Never raises; missing assets become placeholders.
         """
+        # Support typed AssetManifest objects (entries[] schema) as well as raw dicts.
+        if isinstance(asset_manifest, AssetManifest):
+            return [
+                self._resolve_one(
+                    entry.asset_type.value,  # AssetType(str, Enum) → "character" etc.
+                    entry.asset_id,
+                    None,                    # no license_type in ManifestEntry (Phase 0)
+                )
+                for entry in asset_manifest.entries
+            ]
+
         results: list[ResolvedAsset] = []
 
         # 1. character_packs
