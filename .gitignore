@@ -1,0 +1,95 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+backups/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+.claude/
+
+# Secrets (never commit)
+.env.local
+.env.*.local
+secrets/
+credentials.json
+
+# SQLite database files
+*.db
+*.sqlite
+*.sqlite3
+data/*.db
+
+# Additional Python artifacts
+.ruff_cache/
+
+# Keep data directory but ignore contents
+data/*
+!data/.gitkeep
+
+docs/todo*
+
+# Un-ignore everything vendored from orchestrator (not generated output)
+!third_party/contracts/**
+
+third_party/contracts/**/__pycache__/
+third_party/contracts/**/*.py[cod]

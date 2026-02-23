@@ -6,9 +6,9 @@ Phase 0 behaviour (§25.4 stub):
   - Hard block is deferred to the Phase 1 quality gate.
 """
 
-from app.utils.logging import get_logger
+import structlog
 
-logger = get_logger("rights.license_validator")
+logger = structlog.get_logger("rights.license_validator")
 
 # Allowed license type values (§25.2 + placeholder sentinel).
 ALLOWED_LICENSE_TYPES: frozenset[str] = frozenset(
