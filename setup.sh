@@ -38,8 +38,8 @@ run_tests() {
     local pytest_cmd
     if [[ -f "${script_dir}/.venv/bin/pytest" ]]; then
         pytest_cmd="${script_dir}/.venv/bin/pytest"
-    elif [[ -f "${HOME}/.virtualenvs/media/bin/pytest" ]]; then
-        pytest_cmd="${HOME}/.virtualenvs/media/bin/pytest"
+    elif [[ -f "${HOME}/.virtualenvs/ma/bin/pytest" ]]; then
+        pytest_cmd="${HOME}/.virtualenvs/ma/bin/pytest"
     elif command -v pytest &>/dev/null; then
         pytest_cmd="pytest"
     else
@@ -69,8 +69,8 @@ run_tests() {
     local python_cmd
     if [[ -f "${script_dir}/.venv/bin/python" ]]; then
         python_cmd="${script_dir}/.venv/bin/python"
-    elif [[ -f "${HOME}/.virtualenvs/media/bin/python" ]]; then
-        python_cmd="${HOME}/.virtualenvs/media/bin/python"
+    elif [[ -f "${HOME}/.virtualenvs/ma/bin/python" ]]; then
+        python_cmd="${HOME}/.virtualenvs/ma/bin/python"
     elif command -v python3 &>/dev/null; then
         python_cmd="python3"
     else
@@ -114,8 +114,8 @@ install_requirements() {
     local pip_cmd
     if [[ -f "${script_dir}/.venv/bin/pip" ]]; then
         pip_cmd="${script_dir}/.venv/bin/pip"
-    elif [[ -f "${HOME}/.virtualenvs/media/bin/pip" ]]; then
-        pip_cmd="${HOME}/.virtualenvs/media/bin/pip"
+    elif [[ -f "${HOME}/.virtualenvs/ma/bin/pip" ]]; then
+        pip_cmd="${HOME}/.virtualenvs/ma/bin/pip"
     elif command -v pip3 &>/dev/null; then
         pip_cmd="pip3"
     elif command -v pip &>/dev/null; then
