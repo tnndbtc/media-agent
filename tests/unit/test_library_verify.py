@@ -1,7 +1,13 @@
 """End-to-end subprocess tests for the MEDIA_LIBRARY_ROOT resolution path.
 
-Covers library asset discovery, license enforcement, and deterministic output
-by running verify_media_integration.py as a real subprocess, mirroring the
+Covers:
+  - Library asset discovery and license enforcement
+  - Input manifest validated against AssetManifest.v1.json before every run
+  - Output file validated against AssetManifest.media.v1.json after every
+    successful run
+  - Deterministic (byte-identical) output on consecutive runs
+
+Tests run verify_media_integration.py as a real subprocess, mirroring the
 pattern established in test_verify_script.py.
 """
 
@@ -11,11 +17,65 @@ import subprocess
 import sys
 from pathlib import Path
 
+import jsonschema
+
 # ---------------------------------------------------------------------------
-# Helpers
+# Contract schemas — loaded once at import time
+# ---------------------------------------------------------------------------
+
+_CONTRACTS_DIR = (
+    Path(__file__).resolve().parents[2] / "third_party" / "contracts" / "schemas"
+)
+_SCHEMA_IN: dict = json.loads(
+    (_CONTRACTS_DIR / "AssetManifest.v1.json").read_text(encoding="utf-8")
+)
+_SCHEMA_OUT: dict = json.loads(
+    (_CONTRACTS_DIR / "AssetManifest.media.v1.json").read_text(encoding="utf-8")
+)
+
+# ---------------------------------------------------------------------------
+# Script under test
 # ---------------------------------------------------------------------------
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts/verify_media_integration.py"
+
+
+# ---------------------------------------------------------------------------
+# Schema-validation helpers
+# ---------------------------------------------------------------------------
+
+
+def _assert_valid_input(manifest: dict) -> None:
+    """Assert *manifest* conforms to AssetManifest.v1.json.
+
+    Raises AssertionError with a human-readable message on failure so that
+    pytest output is easy to read.
+    """
+    try:
+        jsonschema.validate(instance=manifest, schema=_SCHEMA_IN)
+    except jsonschema.ValidationError as exc:
+        raise AssertionError(
+            f"Input manifest does not conform to AssetManifest.v1.json:\n  {exc.message}"
+        ) from exc
+
+
+def _assert_valid_output(output_path: Path) -> None:
+    """Assert the JSON file at *output_path* conforms to AssetManifest.media.v1.json.
+
+    Raises AssertionError with a human-readable message on failure.
+    """
+    data = json.loads(output_path.read_text(encoding="utf-8"))
+    try:
+        jsonschema.validate(instance=data, schema=_SCHEMA_OUT)
+    except jsonschema.ValidationError as exc:
+        raise AssertionError(
+            f"Output file does not conform to AssetManifest.media.v1.json:\n  {exc.message}"
+        ) from exc
+
+
+# ---------------------------------------------------------------------------
+# Fixture helpers
+# ---------------------------------------------------------------------------
 
 
 def _write_library_asset(lib_root: Path, filename: str, content: bytes = b"x") -> Path:
@@ -42,9 +102,10 @@ def _make_manifest(
     backgrounds: list | None = None,
     vo_items: list | None = None,
 ) -> dict:
-    """Build a minimal canonical AssetManifest dict."""
+    """Build a minimal canonical AssetManifest dict (contract-valid per AssetManifest.v1.json)."""
     return {
-        "schema_version": "1",
+        "schema_id": "AssetManifest",
+        "schema_version": "1.0.0",
         "manifest_id": "test-manifest",
         "project_id": "proj-001",
         "shotlist_ref": "shots-001",
@@ -77,12 +138,17 @@ def _run_library(
 
 
 # ---------------------------------------------------------------------------
-# T1 — Library asset with license present → OK summary
+# T1 — Library asset with license present → OK summary, both contracts pass
 # ---------------------------------------------------------------------------
 
 
 def test_library_asset_with_license_ok(tmp_path: Path) -> None:
-    """Library asset with a valid CC0 license file resolves to exit 0 and OK summary."""
+    """Library asset with a valid CC0 license file resolves to exit 0 and OK summary.
+
+    Validates:
+      - Input manifest against AssetManifest.v1.json  (pre-run)
+      - Output file   against AssetManifest.media.v1.json (post-run)
+    """
     lib_root = tmp_path / "lib"
     _write_library_asset(lib_root, "hero.png")
     _write_license(lib_root, "hero")
@@ -94,29 +160,43 @@ def test_library_asset_with_license_ok(tmp_path: Path) -> None:
         json.dumps(manifest), encoding="utf-8"
     )
 
+    # Contract check: input must conform before we even call the script.
+    _assert_valid_input(manifest)
+
     result = _run_library(tmp_path, lib_root)
 
-    assert result.returncode == 0
+    assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "OK: 1 assets; 0 placeholders"
+
+    # Contract check: output must conform to AssetManifest.media.v1.json.
+    _assert_valid_output(tmp_path / "AssetManifest.media.json")
 
 
 # ---------------------------------------------------------------------------
-# T2 — Library asset present but license file missing → exit 1 with error
+# T2 — Library asset present but license file missing → exit 1, valid input
 # ---------------------------------------------------------------------------
 
 
 def test_library_asset_missing_license_error(tmp_path: Path) -> None:
-    """Library asset without a license file causes exit 1 with a descriptive error."""
+    """Library asset without a license file causes exit 1 with a descriptive error.
+
+    The input manifest is contract-valid (license_type present), so the failure
+    is detected by the resolver (missing license FILE on disk), not by schema
+    validation.  No output file is written on failure.
+    """
     lib_root = tmp_path / "lib"
     _write_library_asset(lib_root, "hero.png")
-    # Intentionally omit the license file.
+    # Intentionally omit the license FILE — the manifest entry is still valid.
 
     manifest = _make_manifest(
-        character_packs=[{"asset_id": "hero"}]
+        character_packs=[{"asset_id": "hero", "license_type": "CC0"}]
     )
     (tmp_path / "AssetManifest.json").write_text(
         json.dumps(manifest), encoding="utf-8"
     )
+
+    # Contract check: input is valid even though the runtime will fail.
+    _assert_valid_input(manifest)
 
     result = _run_library(tmp_path, lib_root)
 
@@ -132,7 +212,11 @@ def test_library_asset_missing_license_error(tmp_path: Path) -> None:
 
 
 def test_library_two_runs_bytes_identical(tmp_path: Path) -> None:
-    """Running the verify script twice on the same library manifest is byte-identical."""
+    """Running the verify script twice on the same library manifest is byte-identical.
+
+    Also validates that the final output conforms to AssetManifest.media.v1.json.
+    (Both runs produce the same bytes, so one schema check is sufficient.)
+    """
     lib_root = tmp_path / "lib"
     _write_library_asset(lib_root, "hero.png")
     _write_license(lib_root, "hero")
@@ -144,12 +228,18 @@ def test_library_two_runs_bytes_identical(tmp_path: Path) -> None:
         json.dumps(manifest), encoding="utf-8"
     )
 
+    # Contract check: input is valid before any run.
+    _assert_valid_input(manifest)
+
     result1 = _run_library(tmp_path, lib_root)
-    assert result1.returncode == 0
+    assert result1.returncode == 0, result1.stderr
     bytes_run1 = (tmp_path / "AssetManifest.media.json").read_bytes()
 
     result2 = _run_library(tmp_path, lib_root)
-    assert result2.returncode == 0
+    assert result2.returncode == 0, result2.stderr
     bytes_run2 = (tmp_path / "AssetManifest.media.json").read_bytes()
 
     assert bytes_run1 == bytes_run2
+
+    # Contract check: output is schema-valid (both runs are identical, one check suffices).
+    _assert_valid_output(tmp_path / "AssetManifest.media.json")

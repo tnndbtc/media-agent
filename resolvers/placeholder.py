@@ -4,8 +4,6 @@ Used by LocalAssetResolver when no local file matches a manifest entry.
 Spec §19.0: run must complete — placeholders ensure that.
 """
 
-import hashlib
-
 from models.resolution import AssetMetadata, AssetSource, ResolvedAsset
 
 # Fixed epoch timestamp for Phase 0 determinism (no dependency on wall-clock time).
@@ -23,8 +21,7 @@ def make_placeholder(asset_type: str, normalized_id: str) -> ResolvedAsset:
         A :class:`~models.resolution.ResolvedAsset` with
         ``is_placeholder=True`` and a ``placeholder://`` URI.
     """
-    sha = hashlib.sha256(normalized_id.encode()).hexdigest()
-    uri = f"placeholders/{sha}.png"
+    uri = f"placeholder://{asset_type}/{normalized_id}"
     return ResolvedAsset(
         asset_id=normalized_id,
         asset_type=asset_type,

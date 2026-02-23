@@ -120,7 +120,7 @@ def test_missing_asset_returns_placeholder(tmp_path: Path) -> None:
     resolved = results[0]
 
     assert resolved.is_placeholder is True
-    assert resolved.uri == f"placeholders/{hashlib.sha256(b'ghost').hexdigest()}.png"
+    assert resolved.uri == "placeholder://character/ghost"
     assert resolved.metadata.license_type == "placeholder"
     assert resolved.metadata.provider_or_model == "placeholder_stub_v0"
     assert resolved.metadata.retrieval_date == "1970-01-01T00:00:00Z"
@@ -348,9 +348,8 @@ def test_placeholder_uri_sha256_deterministic(tmp_path: Path) -> None:
 
     assert first.uri == second.uri, "Placeholder URI must be deterministic"
 
-    # URI must have the form placeholders/<64-char-hex>.png
-    import re
-    assert re.fullmatch(r"placeholders/[0-9a-f]{64}\.png", first.uri), (
+    # URI must have the form placeholder://<type>/<normalized-id>
+    assert first.uri == "placeholder://character/missing-char", (
         f"Unexpected placeholder URI format: {first.uri!r}"
     )
 
@@ -465,7 +464,7 @@ def test_wave3_schema_fields_present_on_found_asset(tmp_path: Path) -> None:
     data = json.loads(results[0].model_dump_json())
 
     assert data["schema_id"] == "urn:media:resolved-asset"
-    assert data["schema_version"] == "1"
+    assert data["schema_version"] == "1.0.0"
     assert data["producer"] == "media/resolvers/local"
 
 
@@ -479,7 +478,7 @@ def test_wave3_schema_fields_present_on_placeholder(tmp_path: Path) -> None:
     data = json.loads(results[0].model_dump_json())
 
     assert data["schema_id"] == "urn:media:resolved-asset"
-    assert data["schema_version"] == "1"
+    assert data["schema_version"] == "1.0.0"
     assert data["producer"] == "media/resolvers/local"
 
 

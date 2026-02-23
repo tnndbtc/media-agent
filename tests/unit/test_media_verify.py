@@ -58,9 +58,10 @@ def _make_manifest(
     backgrounds: list | None = None,
     vo_items: list | None = None,
 ) -> dict:
-    """Build a minimal canonical AssetManifest dict."""
+    """Build a minimal canonical AssetManifest dict (contract-valid per AssetManifest.v1.json)."""
     return {
-        "schema_version": "1",
+        "schema_id": "AssetManifest",
+        "schema_version": "1.0.0",
         "manifest_id": "test-manifest",
         "project_id": "proj-001",
         "shotlist_ref": "shots-001",
@@ -97,7 +98,7 @@ def test_verify_ok_all_found(tmp_path: Path) -> None:
 def test_verify_placeholder_strict_fails(tmp_path: Path) -> None:
     """media verify exits 1 when a placeholder asset fails strict mode."""
     manifest = _make_manifest(
-        character_packs=[{"asset_id": "ghost"}]  # no file, no license_type → placeholder
+        character_packs=[{"asset_id": "ghost", "license_type": "proprietary_cleared"}]  # no file → placeholder
     )
     _write_manifest(tmp_path, manifest)
 

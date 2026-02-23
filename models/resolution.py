@@ -86,7 +86,7 @@ class ResolvedAsset(BaseModel):
     schema_id: str = "urn:media:resolved-asset"
     """Stable identifier for the resolved-asset record schema."""
 
-    schema_version: str = "1"
+    schema_version: str = "1.0.0"
     """Schema version; increment when fields are added or semantics change."""
 
     producer: str = "media/resolvers/local"

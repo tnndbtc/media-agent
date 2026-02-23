@@ -56,9 +56,10 @@ def _make_manifest(
     backgrounds: list | None = None,
     vo_items: list | None = None,
 ) -> dict:
-    """Build a minimal canonical AssetManifest dict."""
+    """Build a minimal canonical AssetManifest dict (contract-valid per AssetManifest.v1.json)."""
     return {
-        "schema_version": "1",
+        "schema_id": "AssetManifest",
+        "schema_version": "1.0.0",
         "manifest_id": "test-manifest",
         "project_id": "proj-001",
         "shotlist_ref": "shots-001",
@@ -98,7 +99,7 @@ def test_normal_ok_summary_with_placeholder(tmp_path: Path) -> None:
     manifest = _make_manifest(
         character_packs=[
             {"asset_id": "hero", "license_type": "proprietary_cleared"},
-            {"asset_id": "ghost"},  # no file → placeholder
+            {"asset_id": "ghost", "license_type": "proprietary_cleared"},  # no file → placeholder
         ]
     )
     _write_manifest(tmp_path, manifest)
@@ -144,7 +145,7 @@ def test_output_file_bytes_identical_across_runs(tmp_path: Path) -> None:
 def test_strict_mode_placeholder_fails_exact_error(tmp_path: Path) -> None:
     """Strict mode exits 1 and prints the exact error message for a placeholder asset."""
     manifest = _make_manifest(
-        character_packs=[{"asset_id": "ghost"}]  # no file → placeholder
+        character_packs=[{"asset_id": "ghost", "license_type": "proprietary_cleared"}]  # no file → placeholder
     )
     _write_manifest(tmp_path, manifest)
 

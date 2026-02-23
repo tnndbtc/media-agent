@@ -17,11 +17,20 @@ import json
 import sys
 from pathlib import Path
 
+import jsonschema
+
 # Ensure project root is on sys.path so resolvers/* and models/* are importable
 # when the script is invoked from any working directory.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from resolvers.local import LocalAssetResolver  # noqa: E402
+
+# ---------------------------------------------------------------------------
+# Contract schemas — loaded once at import time relative to project root.
+# ---------------------------------------------------------------------------
+_CONTRACTS_DIR = Path(__file__).resolve().parent.parent / "third_party" / "contracts" / "schemas"
+_SCHEMA_IN  = json.loads((_CONTRACTS_DIR / "AssetManifest.v1.json").read_text(encoding="utf-8"))
+_SCHEMA_OUT = json.loads((_CONTRACTS_DIR / "AssetManifest.media.v1.json").read_text(encoding="utf-8"))
 
 
 def main() -> None:
@@ -60,6 +69,16 @@ def main() -> None:
         print(f"ERROR: failed to load {input_path}: {exc}", file=sys.stderr)
         sys.exit(1)
 
+    # 2b. Validate input manifest against contract
+    try:
+        jsonschema.validate(instance=manifest, schema=_SCHEMA_IN)
+    except jsonschema.ValidationError as exc:
+        print(
+            f"ERROR: input manifest does not conform to AssetManifest.v1.json: {exc.message}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     # 3. Resolve
     resolver = LocalAssetResolver()
     try:
@@ -78,10 +97,29 @@ def main() -> None:
                 )
                 sys.exit(1)
 
-    # 5. Write output (create parent dirs if needed)
+    # 5. Write output (envelope format per AssetManifest.media.v1.json)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    envelope = {
+        "schema_id": "AssetManifest.media",
+        "schema_version": "1.0.0",
+        "manifest_id": manifest.get("manifest_id", ""),
+        "project_id": manifest.get("project_id", ""),
+        "producer": "media/generate_media.py",
+        "generated_at": "1970-01-01T00:00:00Z",
+        "items": [r.model_dump() for r in results],
+    }
+    # 5b. Validate output envelope against contract before writing
+    try:
+        jsonschema.validate(instance=envelope, schema=_SCHEMA_OUT)
+    except jsonschema.ValidationError as exc:
+        print(
+            f"ERROR: output envelope does not conform to AssetManifest.media.v1.json: {exc.message}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     output_path.write_text(
-        json.dumps([r.model_dump() for r in results], indent=2),
+        json.dumps(envelope, indent=2),
         encoding="utf-8",
     )
 
