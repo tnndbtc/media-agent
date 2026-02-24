@@ -93,3 +93,5 @@ docs/todo*
 
 third_party/contracts/**/__pycache__/
 third_party/contracts/**/*.py[cod]
+
+.envrc

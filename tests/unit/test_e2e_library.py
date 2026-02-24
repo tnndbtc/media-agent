@@ -55,12 +55,11 @@ _FULL_MANIFEST: dict = {
         {"asset_id": "char-commander", "license_type": "CC0"},
     ],
     "backgrounds": [
-        {"asset_id": "bg-scene-001", "license_type": "CC0"},
-        {"asset_id": "bg-scene-002", "license_type": "CC0"},
+        {"asset_id": "bg-scene-1", "license_type": "CC0"},
     ],
     "vo_items": [
-        {"item_id": "vo-line-001", "speaker_id": "analyst",   "text": "First line.",  "license_type": "CC0"},
-        {"item_id": "vo-line-002", "speaker_id": "commander", "text": "Second line.", "license_type": "CC0"},
+        {"item_id": "vo-scene-1-commander-000", "speaker_id": "commander", "text": "Did anyone follow you?",  "license_type": "CC0"},
+        {"item_id": "vo-scene-1-analyst-001",   "speaker_id": "analyst",   "text": "No. But we shouldn't stay.", "license_type": "CC0"},
     ],
 }
 
@@ -105,7 +104,7 @@ def test_e2e_all_assets_resolve_no_placeholders(tmp_path: Path) -> None:
     result = _run_verify(tmp_path)
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip().splitlines()[-1] == "OK: 6 assets; 0 placeholders"
+    assert result.stdout.strip().splitlines()[-1] == "OK: 5 assets; 0 placeholders"
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +118,7 @@ def test_e2e_strict_mode_passes(tmp_path: Path) -> None:
     result = _run_verify(tmp_path, strict=True)
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip().splitlines()[-1] == "OK: 6 assets; 0 placeholders"
+    assert result.stdout.strip().splitlines()[-1] == "OK: 5 assets; 0 placeholders"
 
 
 # ---------------------------------------------------------------------------
@@ -234,18 +233,17 @@ def test_e2e_output_order_matches_manifest(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
 
     items = _read_output(tmp_path)["items"]
-    assert len(items) == 6
+    assert len(items) == 5
 
-    expected_types = ["character", "character", "background", "background", "vo", "vo"]
+    expected_types = ["character", "character", "background", "vo", "vo"]
     actual_types   = [item["asset_type"] for item in items]
     assert actual_types == expected_types, f"Unexpected asset_type order: {actual_types}"
 
     assert items[0]["asset_id"] == "char-analyst"
     assert items[1]["asset_id"] == "char-commander"
-    assert items[2]["asset_id"] == "bg-scene-001"
-    assert items[3]["asset_id"] == "bg-scene-002"
-    assert items[4]["asset_id"] == "vo-line-001"
-    assert items[5]["asset_id"] == "vo-line-002"
+    assert items[2]["asset_id"] == "bg-scene-1"
+    assert items[3]["asset_id"] == "vo-scene-1-commander-000"
+    assert items[4]["asset_id"] == "vo-scene-1-analyst-001"
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +275,7 @@ def test_e2e_generate_script_produces_valid_output(tmp_path: Path) -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert "OK: 6 assets; 0 placeholders" in result.stdout
+    assert "OK: 5 assets; 0 placeholders" in result.stdout
 
     output = json.loads(output_path.read_text(encoding="utf-8"))
     try:

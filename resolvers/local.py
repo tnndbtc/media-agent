@@ -30,6 +30,10 @@ _PHASE0_DATE = "1970-01-01T00:00:00Z"
 # Default local assets root (overridden by LOCAL_ASSETS_ROOT env var).
 _DEFAULT_ASSETS_ROOT = "./data/local_assets"
 
+# Default media library root (overridden by MEDIA_LIBRARY_ROOT env var).
+# Points at tests/library/ relative to this file so it works without any env var.
+_DEFAULT_LIBRARY_ROOT = Path(__file__).resolve().parent.parent / "tests" / "library"
+
 # Map asset_type → subdirectory name under assets_root.
 _TYPE_TO_SUBDIR: dict[str, str] = {
     "character": "characters",
@@ -105,7 +109,7 @@ class LocalAssetResolver:
     ) -> None:
         root = assets_root or os.environ.get("LOCAL_ASSETS_ROOT", _DEFAULT_ASSETS_ROOT)
         self.assets_root = Path(root).resolve()
-        lib = library_root or os.environ.get("MEDIA_LIBRARY_ROOT")
+        lib = library_root or os.environ.get("MEDIA_LIBRARY_ROOT", str(_DEFAULT_LIBRARY_ROOT))
         self.library_root: Path | None = Path(lib).resolve() if lib else None
         self._validator = LicenseValidator()
         self._log = structlog.get_logger("resolvers.local")
@@ -179,10 +183,15 @@ class LocalAssetResolver:
     def _load_license_file(self, asset_id: str) -> dict:
         """Load and return the license JSON for *asset_id* from the library root.
 
+        The filename is derived from the normalised asset ID (same rules as
+        file lookup) so that ``bg-scene_1`` and ``bg-scene-1`` both resolve
+        to ``licenses/bg-scene-1.license.json``.
+
         Raises:
             ValueError: If the license file does not exist.
         """
-        license_path = self.library_root / "licenses" / f"{asset_id}.license.json"
+        norm_id = _normalize_id(asset_id)
+        license_path = self.library_root / "licenses" / f"{norm_id}.license.json"
         if not license_path.exists():
             raise ValueError(f"ERROR: missing license file for local asset {asset_id}")
         return json.loads(license_path.read_text(encoding="utf-8"))
