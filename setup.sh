@@ -104,6 +104,40 @@ run_tests() {
     echo -e "${CYAN}$ rm \"${output}\"${NC}"
     rm -f "$output"
     echo -e "${GREEN}Output cleaned up.${NC}"
+
+    # --- Real workflow test: media resolve (orchestrator CLI form) ---
+    echo ""
+    echo -e "${YELLOW}Running real workflow: media resolve...${NC}"
+
+    local output2="/tmp/AssetManifest.media_resolve_${timestamp}.json"
+
+    echo -e "${CYAN}$ \"${python_cmd}\" scripts/media.py resolve \\${NC}"
+    echo -e "${CYAN}      --in  \"${input}\" \\${NC}"
+    echo -e "${CYAN}      --out \"${output2}\"${NC}"
+    (cd "$script_dir" && "$python_cmd" scripts/media.py resolve \
+        --in  "$input" \
+        --out "$output2")
+
+    if [[ $? -ne 0 ]]; then
+        echo -e "${RED}media resolve test failed.${NC}"
+        return 1
+    fi
+
+    echo -e "${CYAN}$ ls -l \"${output2}\"${NC}"
+    ls -l "$output2"
+
+    local size2
+    size2=$(stat -c%s "$output2" 2>/dev/null || stat -f%z "$output2" 2>/dev/null)
+    if [[ -z "$size2" || "$size2" -eq 0 ]]; then
+        echo -e "${RED}Error: output file is empty.${NC}"
+        rm -f "$output2"
+        return 1
+    fi
+
+    echo -e "${GREEN}media resolve test passed! (${size2} bytes)${NC}"
+    echo -e "${CYAN}$ rm \"${output2}\"${NC}"
+    rm -f "$output2"
+    echo -e "${GREEN}Output cleaned up.${NC}"
 }
 
 # Function to install Python dependencies from requirements.txt
@@ -146,20 +180,25 @@ show_generate_usage() {
     local script_dir
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-    echo -e "${GREEN}generate_media.py — resolve an AssetManifest into AssetManifest.media.json${NC}"
+    echo -e "${GREEN}Resolve an AssetManifest into AssetManifest.media.json${NC}"
     echo ""
-    echo -e "${CYAN}Basic usage:${NC}"
+    echo -e "${CYAN}Preferred (orchestrator-compatible CLI):${NC}"
+    echo -e "  media resolve \\"
+    echo -e "      --in  /path/to/AssetManifest.json \\"
+    echo -e "      --out /path/to/AssetManifest.media.json"
+    echo ""
+    echo -e "${CYAN}Fail if any asset is missing (no placeholders allowed):${NC}"
+    echo -e "  media resolve \\"
+    echo -e "      --in  /path/to/AssetManifest.json \\"
+    echo -e "      --out /path/to/AssetManifest.media.json \\"
+    echo -e "      --strict"
+    echo ""
+    echo -e "${CYAN}Direct script (same behaviour, long-form flags):${NC}"
     echo -e "  python ${script_dir}/scripts/generate_media.py \\"
     echo -e "      --input  /path/to/AssetManifest.json \\"
     echo -e "      --output /path/to/AssetManifest.media.json"
     echo ""
-    echo -e "${CYAN}Fail if any asset is missing (no placeholders allowed):${NC}"
-    echo -e "  python ${script_dir}/scripts/generate_media.py \\"
-    echo -e "      --input  /path/to/AssetManifest.json \\"
-    echo -e "      --output /path/to/AssetManifest.media.json \\"
-    echo -e "      --strict"
-    echo ""
-    echo -e "${CYAN}Short flags:${NC}"
+    echo -e "${CYAN}Short flags (direct script only):${NC}"
     echo -e "  python ${script_dir}/scripts/generate_media.py \\"
     echo -e "      -i /path/to/AssetManifest.json \\"
     echo -e "      -o /path/to/AssetManifest.media.json"
