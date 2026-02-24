@@ -27,12 +27,13 @@ from rights.license_validator import LicenseValidator
 # Fixed epoch timestamp — Phase 0 must not depend on wall-clock time.
 _PHASE0_DATE = "1970-01-01T00:00:00Z"
 
-# Default local assets root (overridden by LOCAL_ASSETS_ROOT env var).
-_DEFAULT_ASSETS_ROOT = "./data/local_assets"
-
 # Default media library root (overridden by MEDIA_LIBRARY_ROOT env var).
 # Points at tests/library/ relative to this file so it works without any env var.
 _DEFAULT_LIBRARY_ROOT = Path(__file__).resolve().parent.parent / "tests" / "library"
+
+# Default local assets root (overridden by LOCAL_ASSETS_ROOT env var).
+# Falls back to tests/library so the resolver never warns about data/local_assets.
+_DEFAULT_ASSETS_ROOT = _DEFAULT_LIBRARY_ROOT
 
 # Map asset_type → subdirectory name under assets_root.
 _TYPE_TO_SUBDIR: dict[str, str] = {
@@ -99,7 +100,7 @@ class LocalAssetResolver:
     Args:
         assets_root: Absolute or relative path to the local assets root
             directory.  Defaults to the ``LOCAL_ASSETS_ROOT`` env var, or
-            ``./data/local_assets/`` if the env var is not set.
+            ``tests/library/`` if the env var is not set.
     """
 
     def __init__(
