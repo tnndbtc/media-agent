@@ -64,6 +64,7 @@ def _make_manifest(
         "schema_version": "1.0.0",
         "manifest_id": "test-manifest",
         "project_id": "proj-001",
+        "episode_id": "s01e01",
         "shotlist_ref": "shots-001",
         "character_packs": character_packs or [],
         "backgrounds": backgrounds or [],

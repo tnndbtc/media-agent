@@ -49,6 +49,7 @@ _FULL_MANIFEST: dict = {
     "schema_version": "1.0.0",
     "manifest_id":   "e2e-test-001",
     "project_id":    "test-project",
+    "episode_id":    "s01e01",
     "shotlist_ref":  "test-shots-001",
     "character_packs": [
         {"asset_id": "char-analyst",   "license_type": "CC0"},
