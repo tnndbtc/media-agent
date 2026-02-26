@@ -8,9 +8,21 @@ Spec refs:
 
 Input:  AssetManifest dict matching the canonical orchestrator schema:
           schema_version, manifest_id, project_id, shotlist_ref,
-          character_packs[], backgrounds[], vo_items[]
+          character_packs[], backgrounds[], vo_items[],
+          music_items[], sfx_items[]
 Output: list[ResolvedAsset] — order mirrors manifest arrays
-          (character_packs → backgrounds → vo_items)
+          (character_packs → backgrounds → vo_items → music_items → sfx_items)
+
+Root resolution (3-step priority, applied independently to both roots):
+  1. Explicit constructor arg or env var (MEDIA_LIBRARY_ROOT / LOCAL_ASSETS_ROOT)
+  2. CWD-derived: {CWD}/projects/{project_id}/episodes/{episode_id}/assets/
+     (used when the `media` command is invoked from the pipe root above projects/)
+  3. Fallback: tests/library/  (repo-internal test fixture library)
+
+Locale support:
+  When `locale` is set, VO assets are resolved from a locale-prefixed path:
+    {library_root}/{locale}/audio/vo/{id}.wav
+  All other asset types remain locale-free.
 """
 
 import json
@@ -35,7 +47,7 @@ _DEFAULT_LIBRARY_ROOT = Path(__file__).resolve().parent.parent / "tests" / "libr
 # Falls back to tests/library so the resolver never warns about data/local_assets.
 _DEFAULT_ASSETS_ROOT = _DEFAULT_LIBRARY_ROOT
 
-# Map asset_type → subdirectory name under assets_root.
+# Map asset_type → subdirectory name under assets_root (Pass 2).
 _TYPE_TO_SUBDIR: dict[str, str] = {
     "character": "characters",
     "background": "backgrounds",
@@ -45,7 +57,7 @@ _TYPE_TO_SUBDIR: dict[str, str] = {
     "music": "music",
 }
 
-# Map asset_type → subdirectory name under MEDIA_LIBRARY_ROOT.
+# Map asset_type → subdirectory name under MEDIA_LIBRARY_ROOT (Pass 1, flat layout).
 _LIBRARY_TYPE_TO_SUBDIR: dict[str, str] = {
     "character": "images",
     "background": "images",
@@ -89,6 +101,23 @@ def _derive_id(entry: dict) -> str:
     return ("-".join(parts))[:64] if parts else "unknown"
 
 
+def _derive_cwd_root(project_id: str | None, episode_id: str | None) -> str | None:
+    """Derive asset root from CWD/projects/{project_id}/episodes/{episode_id}/assets/.
+
+    Used as Priority 2 when neither MEDIA_LIBRARY_ROOT nor LOCAL_ASSETS_ROOT
+    env vars are set.  Enables the ``media`` command to be invoked from the
+    pipe root (above ``projects/``) without any environment configuration.
+
+    Returns the path string if the directory exists, None otherwise.
+    """
+    if not project_id or not episode_id:
+        return None
+    candidate = (
+        Path.cwd() / "projects" / project_id / "episodes" / episode_id / "assets"
+    )
+    return str(candidate) if candidate.is_dir() else None
+
+
 class LocalAssetResolver:
     """Resolve AssetManifest entries against a local assets directory.
 
@@ -99,19 +128,52 @@ class LocalAssetResolver:
 
     Args:
         assets_root: Absolute or relative path to the local assets root
-            directory.  Defaults to the ``LOCAL_ASSETS_ROOT`` env var, or
-            ``tests/library/`` if the env var is not set.
+            directory.  Defaults to the ``LOCAL_ASSETS_ROOT`` env var, then
+            the CWD-derived projects path, then ``tests/library/``.
+        library_root: Absolute or relative path to the media library root.
+            Defaults to the ``MEDIA_LIBRARY_ROOT`` env var, then the
+            CWD-derived projects path, then ``tests/library/``.
+        locale: BCP-47 locale tag (e.g. ``zh-Hans``) for locale-specific
+            assets.  When set, VO files are resolved from
+            ``{library_root}/{locale}/audio/vo/`` rather than the flat
+            ``{library_root}/audio/`` path.
+        project_id: Project identifier used to derive the CWD-based default
+            root (Priority 2).  Typically read from the manifest.
+        episode_id: Episode identifier used to derive the CWD-based default
+            root (Priority 2).  Typically read from the manifest.
     """
 
     def __init__(
         self,
         assets_root: str | None = None,
         library_root: str | None = None,
+        locale: str | None = None,
+        project_id: str | None = None,
+        episode_id: str | None = None,
     ) -> None:
-        root = assets_root or os.environ.get("LOCAL_ASSETS_ROOT", _DEFAULT_ASSETS_ROOT)
+        # Priority 2: CWD-derived path (only computed when project/episode known).
+        cwd_root = _derive_cwd_root(project_id, episode_id)
+
+        # 3-step priority for LOCAL_ASSETS_ROOT:
+        #   1. explicit arg  2. env var  3. CWD-derived  4. test fallback
+        root = (
+            assets_root
+            or os.environ.get("LOCAL_ASSETS_ROOT")
+            or cwd_root
+            or str(_DEFAULT_ASSETS_ROOT)
+        )
         self.assets_root = Path(root).resolve()
-        lib = library_root or os.environ.get("MEDIA_LIBRARY_ROOT", str(_DEFAULT_LIBRARY_ROOT))
+
+        # 3-step priority for MEDIA_LIBRARY_ROOT (same chain):
+        lib = (
+            library_root
+            or os.environ.get("MEDIA_LIBRARY_ROOT")
+            or cwd_root
+            or str(_DEFAULT_LIBRARY_ROOT)
+        )
         self.library_root: Path | None = Path(lib).resolve() if lib else None
+
+        self.locale = locale
         self._validator = LicenseValidator()
         self._log = structlog.get_logger("resolvers.local")
 
@@ -126,7 +188,8 @@ class LocalAssetResolver:
         - An :class:`~app.models.asset_manifest.AssetManifest` object (entries[]
           schema) — output order preserves ``entries[]`` order.
         - A plain ``dict`` conforming to the canonical orchestrator schema
-          (``character_packs[]`` → ``backgrounds[]`` → ``vo_items[]`` order).
+          (``character_packs[]`` → ``backgrounds[]`` → ``vo_items[]`` →
+          ``music_items[]`` → ``sfx_items[]`` order).
 
         Returns:
             A list of :class:`~models.resolution.ResolvedAsset` objects.
@@ -175,27 +238,64 @@ class LocalAssetResolver:
                 self._resolve_one("vo", aid, entry.get("license_type"))
             )
 
+        # 4. music_items
+        for entry in asset_manifest.get("music_items", []):
+            aid = entry.get("item_id") or _derive_id(entry)
+            results.append(
+                self._resolve_one("music", aid, entry.get("license_type"))
+            )
+
+        # 5. sfx_items
+        for entry in asset_manifest.get("sfx_items", []):
+            aid = entry.get("item_id") or _derive_id(entry)
+            results.append(
+                self._resolve_one("sfx", aid, entry.get("license_type"))
+            )
+
         return results
 
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _load_license_file(self, asset_id: str) -> dict:
-        """Load and return the license JSON for *asset_id* from the library root.
+    def _library_search_dir(self, asset_type: str) -> Path:
+        """Return the Pass 1 search directory for *asset_type*.
 
-        The filename is derived from the normalised asset ID (same rules as
-        file lookup) so that ``bg-scene_1`` and ``bg-scene-1`` both resolve
-        to ``licenses/bg-scene-1.license.json``.
+        For VO with ``self.locale`` set:
+            ``{library_root}/{locale}/audio/vo/``
+        For all other types (and VO without locale):
+            ``{library_root}/{_LIBRARY_TYPE_TO_SUBDIR[asset_type]}/``
+        """
+        if asset_type == "vo" and self.locale:
+            return self.library_root / self.locale / "audio" / "vo"
+        return self.library_root / _LIBRARY_TYPE_TO_SUBDIR.get(asset_type, "images")
+
+    def _load_license_file(self, asset_id: str, found_path: Path) -> dict:
+        """Load and return the license JSON for *asset_id*.
+
+        Search order:
+          1. Co-located license — ``found_path.parent/licenses/{id}.license.json``
+             (matches the per-type subfolder layout used in production assets).
+          2. Flat root license — ``library_root/licenses/{id}.license.json``
+             (matches the legacy flat layout used in ``tests/library/``).
 
         Raises:
-            ValueError: If the license file does not exist.
+            ValueError: If neither location contains the license file.
         """
         norm_id = _normalize_id(asset_id)
-        license_path = self.library_root / "licenses" / f"{norm_id}.license.json"
-        if not license_path.exists():
-            raise ValueError(f"ERROR: missing license file for local asset {asset_id}")
-        return json.loads(license_path.read_text(encoding="utf-8"))
+
+        # 1. Co-located: licenses/ subfolder next to the asset file.
+        colocated = found_path.parent / "licenses" / f"{norm_id}.license.json"
+        if colocated.exists():
+            return json.loads(colocated.read_text(encoding="utf-8"))
+
+        # 2. Flat: licenses/ at the library root (tests/library/ layout).
+        if self.library_root:
+            flat = self.library_root / "licenses" / f"{norm_id}.license.json"
+            if flat.exists():
+                return json.loads(flat.read_text(encoding="utf-8"))
+
+        raise ValueError(f"ERROR: missing license file for local asset {asset_id}")
 
     def _resolve_one(
         self,
@@ -204,13 +304,13 @@ class LocalAssetResolver:
         manifest_license_type: str | None,
     ) -> ResolvedAsset:
         """Resolve a single asset entry."""
-        # Try MEDIA_LIBRARY_ROOT first (library root takes priority).
+        # Pass 1 — MEDIA_LIBRARY_ROOT (library root takes priority).
         if self.library_root is not None:
             norm_id = _normalize_id(asset_id)
-            lib_subdir = _LIBRARY_TYPE_TO_SUBDIR.get(asset_type, "images")
-            lib_path = self._find_file(self.library_root / lib_subdir, norm_id, asset_type)
+            lib_search_dir = self._library_search_dir(asset_type)
+            lib_path = self._find_file(lib_search_dir, norm_id, asset_type)
             if lib_path is not None:
-                lic = self._load_license_file(asset_id)   # raises if license file missing
+                lic = self._load_license_file(asset_id, lib_path)
                 return ResolvedAsset(
                     asset_id=asset_id,
                     asset_type=asset_type,
@@ -228,7 +328,8 @@ class LocalAssetResolver:
                         retrieval_date=_PHASE0_DATE,
                     ),
                 )
-        # Fall through to LOCAL_ASSETS_ROOT resolution.
+
+        # Pass 2 — LOCAL_ASSETS_ROOT fallback.
         norm_id = _normalize_id(asset_id)
         subdir = _TYPE_TO_SUBDIR.get(asset_type, asset_type + "s")
         search_dir = self.assets_root / subdir

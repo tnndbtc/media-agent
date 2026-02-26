@@ -4,7 +4,8 @@
 Usage:
     python scripts/generate_media.py \\
         --input  /path/to/AssetManifest.json \\
-        --output /path/to/AssetManifest.media.json
+        --output /path/to/AssetManifest.media.json \\
+        [--locale zh-Hans]
 
 Exit codes:
     0  — resolved successfully
@@ -33,6 +34,27 @@ _SCHEMA_IN  = json.loads((_CONTRACTS_DIR / "AssetManifest.v1.json").read_text(en
 _SCHEMA_OUT = json.loads((_CONTRACTS_DIR / "AssetManifest.media.v1.json").read_text(encoding="utf-8"))
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _detect_locale(manifest: dict) -> str | None:
+    """Auto-detect locale from the first vo_item with a tts_prompt.locale field.
+
+    Returns the locale string (e.g. ``'zh-Hans'``) or ``None`` if not found.
+    Used when ``--locale`` is not explicitly provided on the command line.
+    """
+    for item in manifest.get("vo_items", []):
+        locale = item.get("tts_prompt", {}).get("locale")
+        if locale:
+            return locale
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -51,6 +73,17 @@ def main() -> None:
         "--strict",
         action="store_true",
         help="Exit 1 if any resolved asset is a placeholder (missing from library).",
+    )
+    parser.add_argument(
+        "--locale",
+        metavar="LOCALE",
+        default=None,
+        help=(
+            "BCP-47 locale for locale-specific assets, e.g. 'zh-Hans'. "
+            "When set, VO files are resolved from "
+            "{assets_root}/{locale}/audio/vo/. "
+            "If omitted, auto-detected from vo_items[].tts_prompt.locale."
+        ),
     )
     args = parser.parse_args()
 
@@ -79,8 +112,14 @@ def main() -> None:
         )
         sys.exit(1)
 
-    # 3. Resolve
-    resolver = LocalAssetResolver()
+    # 3. Resolve — derive context from manifest for CWD-based default root
+    #    and locale-aware VO resolution.
+    locale = args.locale or _detect_locale(manifest)
+    resolver = LocalAssetResolver(
+        locale=locale,
+        project_id=manifest.get("project_id"),
+        episode_id=manifest.get("episode_id"),
+    )
     try:
         results = resolver.resolve(manifest)
     except Exception as exc:  # noqa: BLE001
